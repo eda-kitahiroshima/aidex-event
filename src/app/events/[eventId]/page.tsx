@@ -3,25 +3,37 @@
 import { use, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/supabase/auth'
-import { Loader2, Calendar, MapPin, Users, CheckCircle2 } from 'lucide-react'
+import { Loader2, Calendar, MapPin, Users, CheckCircle2, MessageSquare, ClipboardList } from 'lucide-react'
 import Link from 'next/link'
 import { QRCodeSVG } from 'qrcode.react'
 
+interface Organization {
+  name: string
+}
+
+interface Event {
+  id: string
+  title: string
+  description: string
+  location: string
+  start_at: string
+  end_at: string
+  capacity: number
+  has_qr_checkin: boolean
+  has_survey: boolean
+  organizations: Organization
+}
+
 export default function EventParticipantPage({ params }: { params: Promise<{ eventId: string }> }) {
   const { eventId } = use(params)
-  const { user, signInAnonymously } = useAuth()
-  const [event, setEvent] = useState<any>(null)
+  const { user } = useAuth()
+  const [event, setEvent] = useState<Event | null>(null)
   const [loading, setLoading] = useState(true)
   const [status, setStatus] = useState<'loading' | 'unregistered' | 'joined'>('loading')
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [displayName, setDisplayName] = useState('')
 
-  const [baseUrl, setBaseUrl] = useState('')
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
   const checkinUrl = `${baseUrl}/events/${eventId}/checkin`
-
-  useEffect(() => {
-    setBaseUrl(window.location.origin)
-  }, [])
 
   useEffect(() => {
     const fetchEventData = async () => {
@@ -33,10 +45,9 @@ export default function EventParticipantPage({ params }: { params: Promise<{ eve
           .single()
 
         if (error || !eventData) throw new Error('イベントが見つかりません')
-        setEvent(eventData)
+        setEvent(eventData as Event)
 
         if (user) {
-          // 既に参加済みかチェック
           const { data: memberData } = await supabase
             .from('event_members')
             .select('id')
@@ -44,16 +55,13 @@ export default function EventParticipantPage({ params }: { params: Promise<{ eve
             .eq('user_id', user.id)
             .single()
 
-          if (memberData) {
-            setStatus('joined')
-          } else {
-            setStatus('unregistered')
-          }
+          setStatus(memberData ? 'joined' : 'unregistered')
         } else {
           setStatus('unregistered')
         }
       } catch (err) {
         console.error(err)
+        setStatus('unregistered')
       } finally {
         setLoading(false)
       }
@@ -65,25 +73,11 @@ export default function EventParticipantPage({ params }: { params: Promise<{ eve
   const handleJoin = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
-    
+
     try {
-      let currentUserId = user?.id
-
-      // 未ログインなら自動的に匿名ログイン（参加者として）
-      if (!currentUserId) {
-        if (!displayName.trim()) {
-          alert('表示名を入力してください')
-          setIsSubmitting(false)
-          return
-        }
-        // オリジナルの匿名ログインを実行してIDを取得
-        const newUser = await signInAnonymously(displayName, 'participant')
-        currentUserId = newUser?.id
-      }
-
+      const currentUserId = user?.id
       if (!currentUserId) throw new Error('ユーザー情報の取得に失敗しました')
 
-      // イベント参加登録
       const { error } = await supabase
         .from('event_members')
         .insert([{
@@ -93,7 +87,7 @@ export default function EventParticipantPage({ params }: { params: Promise<{ eve
           status: 'joined'
         }])
 
-      if (error && error.code !== '23505') throw error // unique violation(23505)は既に登録済みとみなす
+      if (error && error.code !== '23505') throw error
 
       setStatus('joined')
     } catch (err) {
@@ -109,7 +103,7 @@ export default function EventParticipantPage({ params }: { params: Promise<{ eve
 
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
-      <div className="bg-blue-600 text-white pb-16 pt-8 px-4 relative">
+      <div className="bg-blue-600 text-white pb-16 pt-8 px-4">
         <div className="max-w-2xl mx-auto">
           <div className="text-blue-100 text-sm font-medium mb-2">{event.organizations.name} 主催</div>
           <h1 className="text-3xl font-bold mb-4">{event.title}</h1>
@@ -128,61 +122,79 @@ export default function EventParticipantPage({ params }: { params: Promise<{ eve
         </div>
 
         {status === 'joined' ? (
-          <div className="bg-white rounded-xl shadow-md p-8 border border-gray-100 text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle2 className="w-8 h-8 text-green-600" />
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">参加申込が完了しました！</h2>
-            <p className="text-gray-500 mb-8">イベント当日にお待ちしております。</p>
-
-            {event.has_qr_checkin && (
-              <div className="bg-blue-50 rounded-xl p-6 mb-6">
-                <h3 className="font-bold text-blue-900 mb-2">あなたの参加用QRコード</h3>
-                <p className="text-sm text-blue-700 mb-4">当日、受付でこの画面を提示して「受付する」ボタンを押すか、<br/>受付の端末でQRコードを読み取ってもらってください。</p>
-                <div className="bg-white p-4 inline-block rounded-xl border">
-                  {/* 当日受付で参加者自身を識別するためのURL (ここではモックとしてeventIdを含めるのみ) */}
-                  <QRCodeSVG value={`${checkinUrl}?u=${user?.id}`} size={150} />
-                </div>
+          <div className="space-y-4">
+            <div className="bg-white rounded-xl shadow-md p-8 border border-gray-100 text-center">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 className="w-8 h-8 text-green-600" />
               </div>
-            )}
-            
-            <Link href="/" className="text-blue-600 font-medium hover:underline">ホームに戻る</Link>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">参加申込が完了しました！</h2>
+              <p className="text-gray-500 mb-6">イベント当日にお待ちしております。</p>
+
+              {event.has_qr_checkin && (
+                <div className="bg-blue-50 rounded-xl p-6 mb-6 border border-blue-100">
+                  <h3 className="font-bold text-blue-900 mb-2">当日受付用QRコード</h3>
+                  <p className="text-sm text-blue-700 mb-4">
+                    当日、受付でこの画面を提示するか「受付する」ボタンを押してください。
+                  </p>
+                  <div className="bg-white p-4 inline-block rounded-xl border mb-4">
+                    <QRCodeSVG value={`${checkinUrl}?u=${user?.id}`} size={150} />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Link
+                  href={`/events/${eventId}/boards`}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 px-4 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors"
+                >
+                  <MessageSquare className="w-5 h-5" />
+                  お知らせ・掲示板を見る
+                </Link>
+                {event.has_survey && (
+                  <Link
+                    href={`/events/${eventId}/survey`}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 px-4 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 transition-colors"
+                  >
+                    <ClipboardList className="w-5 h-5" />
+                    アンケートに答える
+                  </Link>
+                )}
+              </div>
+
+              <Link href="/" className="block mt-4 text-gray-500 text-sm hover:underline">
+                ホームに戻る
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="bg-white rounded-xl shadow-md p-6 border border-blue-100 border-t-4 border-t-blue-500">
             <h2 className="text-xl font-bold text-gray-900 mb-2">参加申込</h2>
-            <p className="text-gray-500 text-sm mb-6">個人情報の入力は不要です。</p>
 
-            <form onSubmit={handleJoin} className="space-y-4">
-              {!user && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">表示名（ニックネーム） <span className="text-red-500">*</span></label>
-                  <input
-                    type="text"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder="例: やまだ、防災親子"
-                    className="w-full px-4 py-2 border rounded-lg focus:ring-blue-500"
-                    required
-                  />
-                </div>
-              )}
-              
-              {user && (
+            {!user ? (
+              <div className="text-center py-6">
+                <p className="text-gray-600 mb-4">参加するにはログインが必要です。</p>
+                <Link
+                  href="/"
+                  className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-colors"
+                >
+                  ログイン・新規登録
+                </Link>
+              </div>
+            ) : (
+              <form onSubmit={handleJoin} className="space-y-4">
                 <div className="bg-gray-50 p-3 rounded-lg border text-sm text-gray-600">
                   <span className="font-bold text-gray-800">{user.display_name}</span> として申し込みます。
                 </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50"
-              >
-                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
-                参加を申し込む
-              </button>
-            </form>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50"
+                >
+                  {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
+                  参加を申し込む
+                </button>
+              </form>
+            )}
           </div>
         )}
       </main>

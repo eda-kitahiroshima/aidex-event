@@ -1,37 +1,89 @@
 'use client'
 
 import { useState } from 'react'
-import { LogIn, User, ShieldCheck, Key, Copy, Check } from 'lucide-react'
-import { useAuth, UserData } from '@/lib/supabase/auth'
+import { LogIn, UserPlus, Eye, EyeOff, Users, Shield, User } from 'lucide-react'
+import { useAuth } from '@/lib/supabase/auth'
+
+type Mode = 'login' | 'register'
+type UserType = 'admin' | 'volunteer' | 'participant'
+
+const USER_TYPE_OPTIONS: { value: UserType; label: string; desc: string; icon: React.ReactNode }[] = [
+  {
+    value: 'participant',
+    label: '参加者',
+    desc: 'イベントに参加する方',
+    icon: <User className="w-5 h-5" />,
+  },
+  {
+    value: 'volunteer',
+    label: 'ボランティア',
+    desc: 'スタッフとして活動する方',
+    icon: <Users className="w-5 h-5" />,
+  },
+  {
+    value: 'admin',
+    label: '団体管理者',
+    desc: 'イベントを主催・管理する方',
+    icon: <Shield className="w-5 h-5" />,
+  },
+]
 
 export function SignInForm() {
-  const { signInAnonymously, signInWithRecovery } = useAuth()
-  const [mode, setMode] = useState<'signup' | 'login' | 'show_id'>('signup')
-  const [displayName, setDisplayName] = useState('')
-  const [userType, setUserType] = useState<'admin' | 'volunteer' | 'participant'>('participant')
-  const [aidId, setAidId] = useState('')
-  const [recoveryCode, setRecoveryCode] = useState('')
+  const { signUp, signIn } = useAuth()
+  const [mode, setMode] = useState<Mode>('login')
+
+  // 共通
+  const [loginId, setLoginId] = useState('')
+  const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
-  const [createdUser, setCreatedUser] = useState<UserData | null>(null)
-  const [copied, setCopied] = useState(false)
 
-  const handleSignUp = async (e: React.FormEvent) => {
+  // 新規登録のみ
+  const [displayName, setDisplayName] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [userType, setUserType] = useState<UserType>('participant')
+
+  const resetForm = () => {
+    setLoginId('')
+    setPassword('')
+    setConfirmPassword('')
+    setDisplayName('')
+    setError('')
+    setShowPassword(false)
+    setShowConfirm(false)
+  }
+
+  const switchMode = (next: Mode) => {
+    resetForm()
+    setMode(next)
+  }
+
+  const validateLoginId = (id: string) => /^[a-zA-Z0-9_]{3,20}$/.test(id)
+
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!displayName.trim()) {
-      setError('表示名（ニックネーム）を入力してください')
+    setError('')
+
+    if (!validateLoginId(loginId)) {
+      setError('IDは半角英数字・アンダースコアで3〜20文字にしてください')
+      return
+    }
+    if (password.length < 6) {
+      setError('パスワードは6文字以上で入力してください')
+      return
+    }
+    if (password !== confirmPassword) {
+      setError('パスワードが一致しません')
       return
     }
 
     setIsSubmitting(true)
-    setError('')
     try {
-      const user = await signInAnonymously(displayName, userType)
-      setCreatedUser(user)
-      setMode('show_id')
+      await signUp(loginId.trim(), password, displayName.trim() || loginId.trim(), userType)
     } catch (err) {
-      setError('登録に失敗しました。もう一度お試しください。')
-      console.error(err)
+      setError(err instanceof Error ? err.message : '登録に失敗しました')
     } finally {
       setIsSubmitting(false)
     }
@@ -39,208 +91,234 @@ export function SignInForm() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!aidId.trim() || !recoveryCode.trim()) {
-      setError('IDと復旧コードを入力してください')
+    setError('')
+
+    if (!loginId.trim() || !password) {
+      setError('IDとパスワードを入力してください')
       return
     }
 
     setIsSubmitting(true)
-    setError('')
     try {
-      await signInWithRecovery(aidId.trim(), recoveryCode.trim())
-    } catch (err: any) {
-      setError(err.message || 'ログインに失敗しました。')
+      await signIn(loginId.trim(), password)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'ログインに失敗しました')
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  const copyToClipboard = () => {
-    if (!createdUser) return
-    const text = `ID: ${createdUser.aid_id}\n復旧コード: ${createdUser.recovery_code}`
-    navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
-  if (mode === 'show_id' && createdUser) {
-    return (
-      <div className="max-w-md w-full mx-auto p-8 bg-white rounded-2xl shadow-xl border border-blue-100 animate-in fade-in zoom-in duration-300">
-        <div className="text-center mb-8">
-          <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-            <ShieldCheck className="text-green-600 w-8 h-8" />
-          </div>
-          <h2 className="text-2xl font-bold text-gray-800">登録が完了しました！</h2>
-          <p className="text-gray-500 mt-2 text-sm leading-relaxed">
-            このIDとコードは、スマホの機種変更や、別のパソコンでログインする際に必要です。<br/>
-            <strong className="text-red-600">忘れると二度とログインできません。</strong>
-          </p>
-        </div>
-
-        <div className="space-y-4 mb-8">
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">あなたのID</label>
-            <div className="text-2xl font-mono font-bold text-blue-600 tracking-wider">{createdUser.aid_id}</div>
-          </div>
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">復旧コード（秘密）</label>
-            <div className="text-2xl font-mono font-bold text-gray-800 tracking-wider">{createdUser.recovery_code}</div>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          <button
-            onClick={copyToClipboard}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-dashed border-gray-300 text-gray-600 font-medium hover:bg-gray-50 transition-colors"
-          >
-            {copied ? <Check className="w-5 h-5 text-green-500" /> : <Copy className="w-5 h-5" />}
-            {copied ? 'コピーしました' : 'IDとコードをコピーする'}
-          </button>
-          
-          <button
-            onClick={() => window.location.reload()}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg shadow-blue-200 transition-all active:scale-[0.98]"
-          >
-            メモしたので、はじめる
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="max-w-md w-full mx-auto p-6 bg-white rounded-2xl shadow-xl border border-gray-100">
-      <div className="text-center mb-8">
-        <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-          <User className="text-blue-600 w-8 h-8" />
-        </div>
-        <h2 className="text-2xl font-bold text-gray-800">
-          {mode === 'signup' ? 'Aidex Event へようこそ' : '既存のIDでログイン'}
-        </h2>
-        <p className="text-gray-500 mt-2 text-sm">
-          {mode === 'signup' 
-            ? '個人情報を入力せずにすぐ使い始められます' 
-            : '以前発行されたIDと復旧コードを入力してください'}
-        </p>
+    <div className="max-w-md w-full mx-auto bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+      {/* タブ */}
+      <div className="flex border-b border-gray-200">
+        <button
+          type="button"
+          onClick={() => switchMode('login')}
+          className={`flex-1 py-4 text-sm font-bold transition-colors ${
+            mode === 'login'
+              ? 'text-blue-600 border-b-2 border-blue-600 bg-white'
+              : 'text-gray-500 hover:text-gray-700 bg-gray-50'
+          }`}
+        >
+          <LogIn className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+          ログイン
+        </button>
+        <button
+          type="button"
+          onClick={() => switchMode('register')}
+          className={`flex-1 py-4 text-sm font-bold transition-colors ${
+            mode === 'register'
+              ? 'text-blue-600 border-b-2 border-blue-600 bg-white'
+              : 'text-gray-500 hover:text-gray-700 bg-gray-50'
+          }`}
+        >
+          <UserPlus className="w-4 h-4 inline mr-1.5 -mt-0.5" />
+          新規登録
+        </button>
       </div>
 
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm font-medium animate-shake">
-          {error}
-        </div>
-      )}
-
-      {mode === 'signup' ? (
-        <form onSubmit={handleSignUp} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              表示名（ニックネーム）
-            </label>
-            <input
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-              placeholder="例: やまだ、防災太郎"
-              maxLength={20}
-            />
+      <div className="p-6">
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-lg text-sm font-medium">
+            {error}
           </div>
+        )}
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              利用区分
-            </label>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {(['participant', 'volunteer', 'admin'] as const).map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => setUserType(type)}
-                  className={`py-2 px-3 text-sm font-medium rounded-lg border text-center transition-colors ${
-                    userType === type
-                      ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold'
-                      : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
-                  }`}
-                >
-                  {type === 'participant' && '参加者'}
-                  {type === 'volunteer' && 'ボランティア'}
-                  {type === 'admin' && '団体管理者'}
-                </button>
-              ))}
+        {mode === 'login' ? (
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">ログインID</label>
+              <input
+                type="text"
+                value={loginId}
+                onChange={(e) => setLoginId(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
+                placeholder="例: yamada_taro"
+                autoComplete="username"
+              />
             </div>
-          </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-all disabled:opacity-50 active:scale-[0.98]"
-          >
-            {isSubmitting ? (
-              <span className="inline-block animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full mr-2"></span>
-            ) : (
-              <LogIn className="w-5 h-5 mr-2" />
-            )}
-            はじめる
-          </button>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">パスワード</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 pr-10 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="パスワードを入力"
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
 
-          <button
-            type="button"
-            onClick={() => setMode('login')}
-            className="w-full text-sm text-gray-500 hover:text-blue-600 font-medium py-2"
-          >
-            すでにIDを持っている方はこちら
-          </button>
-        </form>
-      ) : (
-        <form onSubmit={handleLogin} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-              <User className="w-4 h-4" /> あなたのID
-            </label>
-            <input
-              type="text"
-              value={aidId}
-              onChange={(e) => setAidId(e.target.value.toUpperCase())}
-              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
-              placeholder="例: AID-XXXXXX"
-            />
-          </div>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-all disabled:opacity-50 active:scale-[0.98]"
+            >
+              {isSubmitting
+                ? <span className="inline-block animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full mr-2" />
+                : <LogIn className="w-5 h-5 mr-2" />
+              }
+              ログイン
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleRegister} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                ログインID <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={loginId}
+                onChange={(e) => setLoginId(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
+                placeholder="例: yamada_taro（3〜20文字、英数字・_）"
+                maxLength={20}
+                autoComplete="username"
+              />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-              <Key className="w-4 h-4" /> 復旧コード
-            </label>
-            <input
-              type="text"
-              value={recoveryCode}
-              onChange={(e) => setRecoveryCode(e.target.value.toUpperCase())}
-              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
-              placeholder="例: XXXXXXXX"
-            />
-          </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                パスワード <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 pr-10 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="6文字以上"
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-all disabled:opacity-50 active:scale-[0.98]"
-          >
-            {isSubmitting ? (
-              <span className="inline-block animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full mr-2"></span>
-            ) : (
-              <LogIn className="w-5 h-5 mr-2" />
-            )}
-            ログイン
-          </button>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                パスワード（確認） <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  type={showConfirm ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-4 py-3 pr-10 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="もう一度入力"
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm(!showConfirm)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showConfirm ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
 
-          <button
-            type="button"
-            onClick={() => setMode('signup')}
-            className="w-full text-sm text-gray-500 hover:text-blue-600 font-medium py-2"
-          >
-            新しく登録する方はこちら
-          </button>
-        </form>
-      )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                表示名（ニックネーム）
+              </label>
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="省略するとIDが使用されます"
+                maxLength={20}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                利用区分 <span className="text-red-500">*</span>
+              </label>
+              <div className="grid grid-cols-1 gap-2">
+                {USER_TYPE_OPTIONS.map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                      userType === opt.value
+                        ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-400'
+                        : 'bg-white border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="userType"
+                      value={opt.value}
+                      checked={userType === opt.value}
+                      onChange={() => setUserType(opt.value)}
+                      className="sr-only"
+                    />
+                    <span className={userType === opt.value ? 'text-blue-600' : 'text-gray-400'}>
+                      {opt.icon}
+                    </span>
+                    <div>
+                      <div className={`text-sm font-bold ${userType === opt.value ? 'text-blue-700' : 'text-gray-800'}`}>
+                        {opt.label}
+                      </div>
+                      <div className="text-xs text-gray-500">{opt.desc}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-all disabled:opacity-50 active:scale-[0.98]"
+            >
+              {isSubmitting
+                ? <span className="inline-block animate-spin w-5 h-5 border-2 border-white border-t-transparent rounded-full mr-2" />
+                : <UserPlus className="w-5 h-5 mr-2" />
+              }
+              アカウントを作成する
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   )
 }

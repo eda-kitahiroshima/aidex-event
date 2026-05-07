@@ -1,6 +1,6 @@
 'use client'
 
-import { use, useEffect, useState } from 'react'
+import { use, useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/supabase/auth'
 import { Loader2, ArrowLeft, Send, MessageCircle, AlertCircle } from 'lucide-react'
@@ -11,6 +11,22 @@ type Reply = {
   body: string
   created_at: string
   users: { display_name: string; user_type: string }
+}
+
+interface Board {
+  id: string
+  title: string
+  description: string
+  board_type: string
+  post_permission: string
+  reply_permission: string
+  role_id: string | null
+}
+
+interface MemberInfo {
+  id: string
+  member_type: string
+  role_id: string | null
 }
 
 type Post = {
@@ -25,16 +41,16 @@ type Post = {
 export default function BoardDetailPage({ params }: { params: Promise<{ eventId: string, boardId: string }> }) {
   const { eventId, boardId } = use(params)
   const { user } = useAuth()
-  const [board, setBoard] = useState<any>(null)
+  const [board, setBoard] = useState<Board | null>(null)
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
-  const [memberInfo, setMemberInfo] = useState<any>(null)
+  const [memberInfo, setMemberInfo] = useState<MemberInfo | null>(null)
 
   const [newPostContent, setNewPostContent] = useState('')
   const [replyContent, setReplyContent] = useState<{ [postId: string]: string }>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const fetchBoardData = async () => {
+  const fetchBoardData = useCallback(async () => {
     if (!user) return
     try {
       const { data: mData } = await supabase.from('event_members').select('*').eq('event_id', eventId).eq('user_id', user.id).single()
@@ -55,10 +71,9 @@ export default function BoardDetailPage({ params }: { params: Promise<{ eventId:
         .order('created_at', { ascending: false })
       
       if (pData) {
-        // 返信も作成日時順に並び替え
         const sortedPosts = pData.map(post => ({
           ...post,
-          board_replies: post.board_replies.sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+          board_replies: [...post.board_replies].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
         })) as unknown as Post[]
         setPosts(sortedPosts)
       }
@@ -67,11 +82,11 @@ export default function BoardDetailPage({ params }: { params: Promise<{ eventId:
     } finally {
       setLoading(false)
     }
-  }
+  }, [user, eventId, boardId])
 
   useEffect(() => {
     fetchBoardData()
-  }, [eventId, boardId, user])
+  }, [fetchBoardData])
 
   const canPost = () => {
     if (!memberInfo || !board) return false

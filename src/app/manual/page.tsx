@@ -1,6 +1,6 @@
 'use client'
 
-import { HelpCircle, ChevronRight, Layout, Calendar, Users, QrCode, ClipboardCheck, MessageSquare, AlertTriangle, BookOpen } from 'lucide-react'
+import { HelpCircle, ChevronRight, Layout, Calendar, Users, QrCode, ClipboardCheck, MessageSquare, AlertTriangle, BookOpen, Tag } from 'lucide-react'
 import Link from 'next/link'
 
 export default function ManualPage() {

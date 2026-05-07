@@ -7,12 +7,31 @@ import { Loader2, ArrowLeft, CalendarPlus, Users, Settings } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
+interface Organization {
+  id: string;
+  name: string;
+  description: string;
+  organization_code: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface Event {
+  id: string;
+  title: string;
+  description: string;
+  start_at: string;
+  end_at: string;
+  status: string;
+  created_at: string;
+}
+
 export default function OrganizationDashboard({ params }: { params: Promise<{ orgCode: string }> }) {
   const { orgCode } = use(params)
   const { user } = useAuth()
   const router = useRouter()
-  const [org, setOrg] = useState<any>(null)
-  const [events, setEvents] = useState<any[]>([])
+  const [org, setOrg] = useState<Organization | null>(null)
+  const [events, setEvents] = useState<Event[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -140,16 +159,19 @@ export default function OrganizationDashboard({ params }: { params: Promise<{ or
             </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden opacity-60">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
             <div className="p-6">
               <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mb-4">
                 <Settings className="w-6 h-6 text-gray-600" />
               </div>
               <h3 className="text-lg font-bold text-gray-900 mb-2">団体設定</h3>
               <p className="text-gray-500 text-sm mb-4">団体名や説明、コードの変更を行います。</p>
-              <button disabled className="w-full inline-flex justify-center items-center px-4 py-2 bg-gray-200 text-gray-500 font-medium rounded-lg cursor-not-allowed">
-                準備中
-              </button>
+              <Link
+                href={`/admin/orgs/${orgCode}/settings`}
+                className="w-full inline-flex justify-center items-center px-4 py-2 bg-gray-700 hover:bg-gray-800 text-white font-medium rounded-lg transition-colors"
+              >
+                設定を開く
+              </Link>
             </div>
           </div>
         </div>

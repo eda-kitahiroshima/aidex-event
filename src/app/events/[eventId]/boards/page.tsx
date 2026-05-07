@@ -3,26 +3,59 @@
 import { use, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/supabase/auth'
-import { Loader2, MessageSquare, ArrowLeft, Lock } from 'lucide-react'
+import { Loader2, MessageSquare, ArrowLeft, Lock, LogIn } from 'lucide-react'
 import Link from 'next/link'
+
+interface Event {
+  id: string
+  title: string
+}
+
+interface Board {
+  id: string
+  title: string
+  description: string
+  board_type: string
+  visibility: string
+  role_id: string | null
+}
+
+interface MemberData {
+  member_type: string
+  role_id: string | null
+}
 
 export default function BoardsListPage({ params }: { params: Promise<{ eventId: string }> }) {
   const { eventId } = use(params)
   const { user } = useAuth()
-  const [event, setEvent] = useState<any>(null)
-  const [boards, setBoards] = useState<any[]>([])
+  const [event, setEvent] = useState<Event | null>(null)
+  const [boards, setBoards] = useState<Board[]>([])
   const [loading, setLoading] = useState(true)
+  const [notMember, setNotMember] = useState(false)
 
   useEffect(() => {
     const fetchBoards = async () => {
-      if (!user) return
       setLoading(true)
       try {
-        // イベント情報の取得
-        const { data: eventData } = await supabase.from('events').select('*').eq('id', eventId).single()
+        const { data: eventData } = await supabase
+          .from('events')
+          .select('id, title')
+          .eq('id', eventId)
+          .single()
         setEvent(eventData)
 
-        // 自分がこのイベント内で持っている権限・役割を取得
+        if (!user) {
+          // 未ログインでも全体公開の掲示板だけ表示
+          const { data: allBoards } = await supabase
+            .from('boards')
+            .select('*')
+            .eq('event_id', eventId)
+            .eq('visibility', 'all')
+            .order('created_at', { ascending: true })
+          setBoards(allBoards || [])
+          return
+        }
+
         const { data: memberData } = await supabase
           .from('event_members')
           .select('member_type, role_id')
@@ -30,11 +63,21 @@ export default function BoardsListPage({ params }: { params: Promise<{ eventId: 
           .eq('user_id', user.id)
           .single()
 
-        if (!memberData) throw new Error('参加情報が見つかりません')
+        if (!memberData) {
+          // 参加登録していない場合は公開掲示板のみ表示
+          setNotMember(true)
+          const { data: publicBoards } = await supabase
+            .from('boards')
+            .select('*')
+            .eq('event_id', eventId)
+            .eq('visibility', 'all')
+            .order('created_at', { ascending: true })
+          setBoards(publicBoards || [])
+          return
+        }
 
-        const { member_type, role_id } = memberData
+        const { member_type, role_id } = memberData as MemberData
 
-        // イベントのすべての掲示板を取得
         const { data: allBoards } = await supabase
           .from('boards')
           .select('*')
@@ -42,10 +85,9 @@ export default function BoardsListPage({ params }: { params: Promise<{ eventId: 
           .order('created_at', { ascending: true })
 
         if (allBoards) {
-          // 権限に基づいてフィルタリング
-          const visibleBoards = allBoards.filter(board => {
-            if (member_type === 'admin') return true // 管理者はすべて見える
-            
+          const visibleBoards = allBoards.filter((board: Board) => {
+            if (member_type === 'admin') return true
+
             switch (board.visibility) {
               case 'all': return true
               case 'volunteer': return member_type === 'volunteer'
@@ -65,7 +107,11 @@ export default function BoardsListPage({ params }: { params: Promise<{ eventId: 
     fetchBoards()
   }, [eventId, user])
 
-  if (loading) return <div className="min-h-screen flex justify-center pt-20"><Loader2 className="w-8 h-8 animate-spin text-blue-600" /></div>
+  if (loading) return (
+    <div className="min-h-screen flex justify-center pt-20">
+      <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
@@ -85,6 +131,24 @@ export default function BoardsListPage({ params }: { params: Promise<{ eventId: 
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8">
+        {notMember && (
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+            <LogIn className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-amber-800 font-medium text-sm">このイベントに参加登録していません</p>
+              <p className="text-amber-700 text-xs mt-1">
+                参加登録するとスタッフ・役割別掲示板も閲覧できます。
+              </p>
+              <Link
+                href={`/events/${eventId}`}
+                className="inline-block mt-2 text-amber-800 underline text-xs font-medium"
+              >
+                参加申込ページへ
+              </Link>
+            </div>
+          </div>
+        )}
+
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           {boards.length === 0 ? (
             <div className="p-8 text-center text-gray-500">
@@ -94,7 +158,7 @@ export default function BoardsListPage({ params }: { params: Promise<{ eventId: 
             <ul className="divide-y divide-gray-100">
               {boards.map(board => (
                 <li key={board.id}>
-                  <Link 
+                  <Link
                     href={`/events/${eventId}/boards/${board.id}`}
                     className="block hover:bg-gray-50 p-6 transition-colors"
                   >

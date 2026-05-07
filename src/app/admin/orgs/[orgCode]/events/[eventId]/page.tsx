@@ -4,44 +4,65 @@ import { use, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/supabase/auth'
-import { ArrowLeft, Loader2, Link as LinkIcon, Trash2, Plus, Users, Send, Bell } from 'lucide-react'
+import { ArrowLeft, Loader2, Link as LinkIcon, Trash2, Plus, Users, Send, Bell, MessageSquare, ClipboardList, Pencil, BarChart3, CheckSquare } from 'lucide-react'
 import Link from 'next/link'
 import { QRCodeSVG } from 'qrcode.react'
+
+interface Event {
+  id: string
+  title: string
+  description: string
+  start_at: string
+  end_at: string
+  status: string
+  organization_id: string
+  has_qr_checkin: boolean
+  has_survey: boolean
+}
+
+interface Role {
+  id: string
+  name: string
+  capacity: number | null
+}
+
+interface Label {
+  id: string
+  name: string
+  color: string
+}
 
 export default function EventDashboardPage({ params }: { params: Promise<{ orgCode: string, eventId: string }> }) {
   const { orgCode, eventId } = use(params)
   const router = useRouter()
   const { user } = useAuth()
-  
-  const [event, setEvent] = useState<any>(null)
-  const [roles, setRoles] = useState<any[]>([])
+
+  const [event, setEvent] = useState<Event | null>(null)
+  const [roles, setRoles] = useState<Role[]>([])
   const [stats, setStats] = useState({ participants: 0, volunteers: 0, checkins: 0 })
-  const [labels, setLabels] = useState<any[]>([])
+  const [labels, setLabels] = useState<Label[]>([])
   const [loading, setLoading] = useState(true)
 
-  // 通知用状態
   const [selectedLabelId, setSelectedLabelId] = useState<string>('all')
   const [noticeTitle, setNoticeTitle] = useState('')
   const [noticeBody, setNoticeBody] = useState('')
   const [isSendingNotice, setIsSendingNotice] = useState(false)
 
-  // 役割追加用フォーム
   const [newRoleName, setNewRoleName] = useState('')
   const [newRoleCapacity, setNewRoleCapacity] = useState('')
   const [isAddingRole, setIsAddingRole] = useState(false)
 
-  // ベースURLの取得
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
   const participantUrl = `${baseUrl}/events/${eventId}`
   const volunteerUrl = `${baseUrl}/events/${eventId}/volunteer`
   const checkinUrl = `${baseUrl}/events/${eventId}/checkin`
+  const surveyUrl = `${baseUrl}/events/${eventId}/survey`
 
   useEffect(() => {
     const fetchEventData = async () => {
       if (!user) return
       setLoading(true)
       try {
-        // イベント情報取得
         const { data: eventData, error: eventError } = await supabase
           .from('events')
           .select('*, organizations!inner(organization_code)')
@@ -50,9 +71,8 @@ export default function EventDashboardPage({ params }: { params: Promise<{ orgCo
           .single()
 
         if (eventError || !eventData) throw new Error('イベントが見つかりません')
-        setEvent(eventData)
+        setEvent(eventData as Event)
 
-        // 役割一覧取得
         const { data: rolesData } = await supabase
           .from('event_roles')
           .select('*')
@@ -61,18 +81,16 @@ export default function EventDashboardPage({ params }: { params: Promise<{ orgCo
 
         if (rolesData) setRoles(rolesData)
 
-        // 統計情報の取得
         const { count: pCount } = await supabase.from('event_members').select('*', { count: 'exact', head: true }).eq('event_id', eventId).eq('member_type', 'participant').eq('status', 'joined')
         const { count: vCount } = await supabase.from('event_members').select('*', { count: 'exact', head: true }).eq('event_id', eventId).eq('member_type', 'volunteer').eq('status', 'joined')
         const { count: cCount } = await supabase.from('checkins').select('*', { count: 'exact', head: true }).eq('event_id', eventId)
-        
+
         setStats({
           participants: pCount || 0,
           volunteers: vCount || 0,
           checkins: cCount || 0
         })
 
-        // ラベル一覧取得
         const { data: labelsData } = await supabase
           .from('labels')
           .select('*')
@@ -96,7 +114,6 @@ export default function EventDashboardPage({ params }: { params: Promise<{ orgCo
 
     setIsAddingRole(true)
     try {
-      // 1. 役割の作成
       const { data: roleData, error: roleError } = await supabase
         .from('event_roles')
         .insert([{
@@ -109,7 +126,6 @@ export default function EventDashboardPage({ params }: { params: Promise<{ orgCo
 
       if (roleError) throw roleError
 
-      // 2. 該当役割の掲示板を自動作成
       const { error: boardError } = await supabase
         .from('boards')
         .insert([{
@@ -155,27 +171,24 @@ export default function EventDashboardPage({ params }: { params: Promise<{ orgCo
 
   const handleSendNotice = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!noticeTitle.trim() || !noticeBody.trim()) return
+    if (!noticeTitle.trim() || !noticeBody.trim() || !event) return
 
     setIsSendingNotice(true)
     try {
-      // 通知対象のユーザーIDを取得
       let targetUserIds: string[] = []
-      
+
       if (selectedLabelId === 'all') {
-        // 名簿全員
         const { data } = await supabase
           .from('organization_participants')
           .select('user_id')
           .eq('organization_id', event.organization_id)
-        targetUserIds = data?.map(d => d.user_id) || []
+        targetUserIds = data?.map((d: { user_id: string }) => d.user_id) || []
       } else {
-        // 特定ラベルのユーザー
         const { data } = await supabase
           .from('user_labels')
           .select('organization_participants(user_id)')
           .eq('label_id', selectedLabelId)
-        targetUserIds = data?.map((d: any) => d.organization_participants.user_id) || []
+        targetUserIds = data?.flatMap((d: { organization_participants: { user_id: string }[] }) => d.organization_participants.map(p => p.user_id)) || []
       }
 
       if (targetUserIds.length === 0) {
@@ -183,7 +196,6 @@ export default function EventDashboardPage({ params }: { params: Promise<{ orgCo
         return
       }
 
-      // 通知レコードの作成
       const notifications = targetUserIds.map(userId => ({
         user_id: userId,
         event_id: eventId,
@@ -227,29 +239,58 @@ export default function EventDashboardPage({ params }: { params: Promise<{ orgCo
             </Link>
             <h1 className="text-xl font-bold text-gray-900">{event.title}</h1>
           </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/admin/orgs/${orgCode}/events/${eventId}/edit`}
+              className="flex items-center gap-1.5 px-3 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+            >
+              <Pencil className="w-4 h-4" />
+              編集
+            </Link>
+            <Link
+              href={`/admin/orgs/${orgCode}/events/${eventId}/report`}
+              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors"
+            >
+              <BarChart3 className="w-4 h-4" />
+              実績レポート
+            </Link>
+            <Link
+              href={`/events/${eventId}/boards`}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors"
+            >
+              <MessageSquare className="w-4 h-4" />
+              掲示板
+            </Link>
+          </div>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        
-        {/* 管理者ダッシュボード（統計情報） */}
+
+        {/* 統計情報 */}
         <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+          <Link href={`/admin/orgs/${orgCode}/events/${eventId}/members`} className="bg-white hover:bg-gray-50 rounded-xl shadow-sm border border-gray-100 p-5 flex flex-col transition-colors group">
             <div className="text-sm text-gray-500 font-medium mb-1">参加者申込</div>
             <div className="text-2xl font-bold text-gray-900">{stats.participants} <span className="text-sm font-normal text-gray-500">人</span></div>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+            <div className="text-xs text-blue-600 mt-1 group-hover:underline">一覧を見る →</div>
+          </Link>
+          <Link href={`/admin/orgs/${orgCode}/events/${eventId}/members`} className="bg-white hover:bg-gray-50 rounded-xl shadow-sm border border-gray-100 p-5 flex flex-col transition-colors group">
             <div className="text-sm text-gray-500 font-medium mb-1">ボランティア申込</div>
             <div className="text-2xl font-bold text-gray-900">{stats.volunteers} <span className="text-sm font-normal text-gray-500">人</span></div>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border border-blue-200 p-5 bg-blue-50/30">
-            <div className="text-sm text-blue-700 font-medium mb-1">当日受付</div>
+            <div className="text-xs text-green-600 mt-1 group-hover:underline">役割別を見る →</div>
+          </Link>
+          <Link href={`/admin/orgs/${orgCode}/events/${eventId}/checkins`} className="bg-blue-50/80 hover:bg-blue-100/80 rounded-xl shadow-sm border border-blue-200 p-5 flex flex-col justify-between transition-colors group">
+            <div className="text-sm text-blue-700 font-medium mb-1 flex items-center gap-1">
+              <CheckSquare className="w-4 h-4" />
+              当日受付
+            </div>
             <div className="text-2xl font-bold text-blue-900">{stats.checkins} <span className="text-sm font-normal text-blue-700">人</span></div>
-          </div>
+            <div className="text-xs text-blue-600 mt-1 group-hover:underline">詳細を見る →</div>
+          </Link>
           <Link href={`/admin/orgs/${orgCode}/events/${eventId}/surveys`} className="bg-white hover:bg-gray-50 rounded-xl shadow-sm border border-gray-100 p-5 flex flex-col justify-center items-center transition-colors group">
-            <div className="text-sm text-gray-600 font-bold group-hover:text-blue-600 flex items-center">
-              アンケート結果を見る
-              <ArrowLeft className="w-4 h-4 ml-1 rotate-180" />
+            <ClipboardList className="w-5 h-5 text-gray-400 group-hover:text-blue-600 mb-1" />
+            <div className="text-sm text-gray-600 font-bold group-hover:text-blue-600">
+              アンケート結果
             </div>
           </Link>
         </section>
@@ -260,37 +301,49 @@ export default function EventDashboardPage({ params }: { params: Promise<{ orgCo
             <LinkIcon className="w-5 h-5 mr-2 text-blue-600" />
             募集URL・QRコード
           </h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* 参加者用 */}
             <div className="border rounded-lg p-4 flex flex-col items-center text-center">
-              <h3 className="font-bold text-gray-800 mb-2">参加者募集用</h3>
+              <h3 className="font-bold text-gray-800 mb-2 text-sm">参加者募集用</h3>
               <div className="bg-white p-2 rounded-lg border mb-3">
-                <QRCodeSVG value={participantUrl} size={120} />
+                <QRCodeSVG value={participantUrl} size={100} />
               </div>
-              <input readOnly value={participantUrl} className="w-full text-xs p-2 bg-gray-50 border rounded text-gray-500 mb-2" onClick={e => e.currentTarget.select()} />
-              <Link href={`/events/${eventId}`} target="_blank" className="text-blue-600 text-sm font-medium hover:underline">ページを開く</Link>
+              <input readOnly value={participantUrl} className="w-full text-xs p-1.5 bg-gray-50 border rounded text-gray-500 mb-2" onClick={e => e.currentTarget.select()} />
+              <Link href={`/events/${eventId}`} target="_blank" className="text-blue-600 text-xs font-medium hover:underline">ページを開く</Link>
             </div>
 
             {/* ボランティア用 */}
             <div className="border rounded-lg p-4 flex flex-col items-center text-center">
-              <h3 className="font-bold text-gray-800 mb-2">ボランティア募集用</h3>
+              <h3 className="font-bold text-gray-800 mb-2 text-sm">ボランティア募集用</h3>
               <div className="bg-white p-2 rounded-lg border mb-3">
-                <QRCodeSVG value={volunteerUrl} size={120} />
+                <QRCodeSVG value={volunteerUrl} size={100} />
               </div>
-              <input readOnly value={volunteerUrl} className="w-full text-xs p-2 bg-gray-50 border rounded text-gray-500 mb-2" onClick={e => e.currentTarget.select()} />
-              <Link href={`/events/${eventId}/volunteer`} target="_blank" className="text-blue-600 text-sm font-medium hover:underline">ページを開く</Link>
+              <input readOnly value={volunteerUrl} className="w-full text-xs p-1.5 bg-gray-50 border rounded text-gray-500 mb-2" onClick={e => e.currentTarget.select()} />
+              <Link href={`/events/${eventId}/volunteer`} target="_blank" className="text-blue-600 text-xs font-medium hover:underline">ページを開く</Link>
             </div>
 
             {/* 当日受付用 */}
             {event.has_qr_checkin && (
               <div className="border rounded-lg p-4 flex flex-col items-center text-center bg-blue-50/50">
-                <h3 className="font-bold text-blue-800 mb-2">当日会場受付QR</h3>
+                <h3 className="font-bold text-blue-800 mb-2 text-sm">当日会場受付QR</h3>
                 <div className="bg-white p-2 rounded-lg border mb-3">
-                  <QRCodeSVG value={checkinUrl} size={120} />
+                  <QRCodeSVG value={checkinUrl} size={100} />
                 </div>
-                <p className="text-xs text-gray-600 mb-2">会場の入り口に掲示してください</p>
-                <Link href={`/events/${eventId}/checkin`} target="_blank" className="text-blue-600 text-sm font-medium hover:underline">ページを開く</Link>
+                <p className="text-xs text-gray-600 mb-2">会場入り口に掲示</p>
+                <Link href={`/events/${eventId}/checkin`} target="_blank" className="text-blue-600 text-xs font-medium hover:underline">ページを開く</Link>
+              </div>
+            )}
+
+            {/* アンケート用 */}
+            {event.has_survey && (
+              <div className="border rounded-lg p-4 flex flex-col items-center text-center bg-purple-50/50">
+                <h3 className="font-bold text-purple-800 mb-2 text-sm">アンケートQR</h3>
+                <div className="bg-white p-2 rounded-lg border mb-3">
+                  <QRCodeSVG value={surveyUrl} size={100} />
+                </div>
+                <p className="text-xs text-gray-600 mb-2">イベント終了後に掲示</p>
+                <Link href={`/events/${eventId}/survey`} target="_blank" className="text-purple-600 text-xs font-medium hover:underline">ページを開く</Link>
               </div>
             )}
           </div>
@@ -317,7 +370,7 @@ export default function EventDashboardPage({ params }: { params: Promise<{ orgCo
                       必要人数: {role.capacity ? `${role.capacity}名` : '無制限'}
                     </span>
                   </div>
-                  <button 
+                  <button
                     onClick={() => handleDeleteRole(role.id)}
                     className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                   >

@@ -6,12 +6,24 @@ import { useAuth } from '@/lib/supabase/auth'
 import { Loader2, CheckCircle2, AlertCircle, ScanLine } from 'lucide-react'
 import Link from 'next/link'
 
+interface Event {
+  id: string
+  title: string
+  has_qr_checkin: boolean
+}
+
+interface MemberInfo {
+  id: string
+  member_type: string
+  checked_in: boolean
+}
+
 export default function QRCheckinPage({ params }: { params: Promise<{ eventId: string }> }) {
   const { eventId } = use(params)
   const { user } = useAuth()
   
-  const [event, setEvent] = useState<any>(null)
-  const [memberInfo, setMemberInfo] = useState<any>(null)
+  const [event, setEvent] = useState<Event | null>(null)
+  const [memberInfo, setMemberInfo] = useState<MemberInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [status, setStatus] = useState<'initial' | 'success' | 'error'>('initial')
@@ -20,18 +32,18 @@ export default function QRCheckinPage({ params }: { params: Promise<{ eventId: s
   useEffect(() => {
     const fetchCheckinInfo = async () => {
       try {
-        const { data: eventData } = await supabase.from('events').select('title, has_qr_checkin').eq('id', eventId).single()
-        setEvent(eventData)
+        const { data: eventData } = await supabase.from('events').select('id, title, has_qr_checkin').eq('id', eventId).single()
+        setEvent(eventData as Event)
 
         if (user) {
           const { data: mData } = await supabase
             .from('event_members')
-            .select('id, checked_in')
+            .select('id, member_type, checked_in')
             .eq('event_id', eventId)
             .eq('user_id', user.id)
             .single()
-            
-          setMemberInfo(mData)
+
+          setMemberInfo(mData as MemberInfo)
 
           if (mData?.checked_in) {
             setStatus('success')

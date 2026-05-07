@@ -1,37 +1,67 @@
 'use client'
 
-import { useEffect, useState, use } from 'react'
+import { useEffect, useState, use, useCallback } from 'react'
 import { supabase } from '@/lib/supabase/client'
 import { useAuth } from '@/lib/supabase/auth'
-import { Loader2, ArrowLeft, UserPlus, Tag, Search, X, Plus, Save, MoreVertical, MessageCircle } from 'lucide-react'
+import { Loader2, ArrowLeft, UserPlus, Tag, Search, X, Plus, MoreVertical } from 'lucide-react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+
+interface Organization {
+  id: string;
+  name: string;
+  description: string;
+  organization_code: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface Label {
+  id: string;
+  name: string;
+  color: string;
+  organization_id: string;
+  created_at: string;
+}
+
+interface ParticipantUser {
+  id: string;
+  display_name: string;
+  login_id: string | null;
+  user_type: string;
+}
+
+interface UserLabel {
+  label_id: string;
+}
+
+interface Participant {
+  id: string;
+  notes: string | null;
+  users: ParticipantUser;
+  user_labels: UserLabel[];
+}
 
 export default function OrganizationParticipants({ params }: { params: Promise<{ orgCode: string }> }) {
   const { orgCode } = use(params)
   const { user } = useAuth()
-  const router = useRouter()
   
-  const [org, setOrg] = useState<any>(null)
-  const [participants, setParticipants] = useState<any[]>([])
-  const [labels, setLabels] = useState<any[]>([])
+  const [org, setOrg] = useState<Organization | null>(null)
+  const [participants, setParticipants] = useState<Participant[]>([])
+  const [labels, setLabels] = useState<Label[]>([])
   const [loading, setLoading] = useState(true)
-  
+  const [activeTab, setActiveTab] = useState<'all' | 'participant' | 'volunteer'>('all')
+
   // モーダル・状態管理
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false)
-  const [searchAidId, setSearchAidId] = useState('')
-  const [foundUser, setFoundUser] = useState<any>(null)
+  const [searchLoginId, setSearchLoginId] = useState('')
+  const [foundUser, setFoundUser] = useState<ParticipantUser | null>(null)
   const [addUserError, setAddUserError] = useState('')
   
   const [isLabelModalOpen, setIsLabelModalOpen] = useState(false)
   const [newLabelName, setNewLabelName] = useState('')
   const [newLabelColor, setNewLabelColor] = useState('#3B82F6')
 
-  useEffect(() => {
-    fetchData()
-  }, [user, orgCode])
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!user) return
     setLoading(true)
     try {
@@ -57,7 +87,7 @@ export default function OrganizationParticipants({ params }: { params: Promise<{
         .from('organization_participants')
         .select(`
           *,
-          users(id, display_name, aid_id, user_type),
+          users(id, display_name, login_id, user_type),
           user_labels(label_id)
         `)
         .eq('organization_id', orgData.id)
@@ -69,27 +99,29 @@ export default function OrganizationParticipants({ params }: { params: Promise<{
     } finally {
       setLoading(false)
     }
-  }
+  }, [user, orgCode])
 
-  // ユーザー検索
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
   const handleSearchUser = async () => {
     setAddUserError('')
     setFoundUser(null)
-    if (!searchAidId.trim().startsWith('AID-')) {
-      setAddUserError('AID-IDを正しく入力してください（例: AID-XXXXXX）')
+    if (!searchLoginId.trim()) {
+      setAddUserError('ログインIDを入力してください')
       return
     }
 
     const { data, error } = await supabase
       .from('users')
-      .select('id, display_name, aid_id')
-      .eq('aid_id', searchAidId.trim().toUpperCase())
+      .select('id, display_name, login_id, user_type')
+      .eq('login_id', searchLoginId.trim())
       .single()
 
     if (error || !data) {
       setAddUserError('ユーザーが見つかりませんでした')
     } else {
-      setFoundUser(data)
+      setFoundUser(data as ParticipantUser)
     }
   }
 
@@ -112,7 +144,7 @@ export default function OrganizationParticipants({ params }: { params: Promise<{
         }
       } else {
         setIsAddUserModalOpen(false)
-        setSearchAidId('')
+        setSearchLoginId('')
         setFoundUser(null)
         fetchData()
       }
@@ -206,61 +238,119 @@ export default function OrganizationParticipants({ params }: { params: Promise<{
 
       <main className="max-w-6xl mx-auto px-4 py-8">
         {/* 統計・概要 */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-          <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-            <div className="text-sm text-gray-500">登録人数</div>
-            <div className="text-2xl font-bold text-gray-900">{participants.length} 人</div>
-          </div>
-          <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-            <div className="text-sm text-gray-500">ラベル数</div>
-            <div className="text-2xl font-bold text-gray-900">{labels.length} 種</div>
-          </div>
+        {(() => {
+          const participantCount = participants.filter(p => p.users.user_type === 'participant').length
+          const volunteerCount = participants.filter(p => p.users.user_type === 'volunteer').length
+          return (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                <div className="text-sm text-gray-500">総登録人数</div>
+                <div className="text-2xl font-bold text-gray-900">{participants.length} 人</div>
+              </div>
+              <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm">
+                <div className="text-sm text-blue-500">参加者</div>
+                <div className="text-2xl font-bold text-blue-700">{participantCount} 人</div>
+              </div>
+              <div className="bg-white p-4 rounded-xl border border-green-100 shadow-sm">
+                <div className="text-sm text-green-500">ボランティア</div>
+                <div className="text-2xl font-bold text-green-700">{volunteerCount} 人</div>
+              </div>
+              <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                <div className="text-sm text-gray-500">ラベル数</div>
+                <div className="text-2xl font-bold text-gray-900">{labels.length} 種</div>
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* タブ */}
+        <div className="flex gap-1 mb-4 bg-gray-100 p-1 rounded-xl w-fit">
+          {([
+            { key: 'all',         label: 'すべて' },
+            { key: 'participant', label: '参加者' },
+            { key: 'volunteer',   label: 'ボランティア' },
+          ] as const).map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${
+                activeTab === tab.key
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {tab.label}
+              <span className="ml-1.5 text-xs">
+                ({tab.key === 'all'
+                  ? participants.length
+                  : participants.filter(p => p.users.user_type === tab.key).length})
+              </span>
+            </button>
+          ))}
         </div>
 
         {/* 名簿テーブル */}
+        {(() => {
+          const displayed = activeTab === 'all'
+            ? participants
+            : participants.filter(p => p.users.user_type === activeTab)
+          return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">参加者</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">AID-ID</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">名前</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">区分</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ログインID</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ラベル</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">メモ</th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200 text-sm">
-                {participants.length === 0 ? (
+                {displayed.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-10 text-center text-gray-500">
+                    <td colSpan={6} className="px-6 py-10 text-center text-gray-500">
                       まだ名簿に登録されている参加者がいません。
                     </td>
                   </tr>
                 ) : (
-                  participants.map((p) => (
+                  displayed.map((p) => (
                     <tr key={p.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="font-medium text-gray-900">{p.users.display_name}</div>
-                        <div className="text-xs text-gray-500 capitalize">{p.users.user_type}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                          p.users.user_type === 'volunteer'
+                            ? 'bg-green-100 text-green-700'
+                            : p.users.user_type === 'participant'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {p.users.user_type === 'volunteer' ? 'ボランティア'
+                           : p.users.user_type === 'participant' ? '参加者'
+                           : p.users.user_type}
+                        </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap font-mono text-xs text-gray-500">
-                        {p.users.aid_id}
+                        {p.users.login_id ?? '-'}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap gap-1">
                           {labels.map(label => {
-                            const hasLabel = p.user_labels?.some((ul: any) => ul.label_id === label.id)
+                            const hasLabel = p.user_labels?.some((ul: { label_id: string }) => ul.label_id === label.id)
                             return (
                               <button
                                 key={label.id}
                                 onClick={() => toggleLabel(p.id, label.id, hasLabel)}
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all border ${
-                                  hasLabel 
-                                    ? 'shadow-sm opacity-100' 
+                                  hasLabel
+                                    ? 'shadow-sm opacity-100'
                                     : 'opacity-20 border-transparent bg-gray-200 text-gray-500 grayscale hover:opacity-50'
                                 }`}
-                                style={{ 
+                                style={{
                                   backgroundColor: hasLabel ? label.color : undefined,
                                   color: hasLabel ? '#fff' : undefined,
                                   borderColor: hasLabel ? label.color : undefined
@@ -288,6 +378,8 @@ export default function OrganizationParticipants({ params }: { params: Promise<{
             </table>
           </div>
         </div>
+          )
+        })()}
       </main>
 
       {/* ユーザー追加モーダル */}
@@ -295,7 +387,7 @@ export default function OrganizationParticipants({ params }: { params: Promise<{
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold">AID-IDで名簿に追加</h3>
+              <h3 className="text-lg font-bold">ログインIDで名簿に追加</h3>
               <button onClick={() => setIsAddUserModalOpen(false)}><X className="w-5 h-5" /></button>
             </div>
 
@@ -303,9 +395,9 @@ export default function OrganizationParticipants({ params }: { params: Promise<{
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="AID-XXXXXX"
-                  value={searchAidId}
-                  onChange={(e) => setSearchAidId(e.target.value.toUpperCase())}
+                  placeholder="ログインIDを入力"
+                  value={searchLoginId}
+                  onChange={(e) => setSearchLoginId(e.target.value)}
                   className="flex-1 px-4 py-2 border rounded-lg font-mono focus:ring-2 focus:ring-blue-500 outline-none"
                 />
                 <button
@@ -322,7 +414,7 @@ export default function OrganizationParticipants({ params }: { params: Promise<{
                 <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center justify-between animate-in slide-in-from-top-2 duration-200">
                   <div>
                     <div className="font-bold text-blue-900">{foundUser.display_name}</div>
-                    <div className="text-xs text-blue-700 font-mono">{foundUser.aid_id}</div>
+                    <div className="text-xs text-blue-700 font-mono">{foundUser.login_id ?? '-'}</div>
                   </div>
                   <button
                     onClick={handleAddParticipant}

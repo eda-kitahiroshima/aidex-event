@@ -6,15 +6,37 @@ import { useAuth } from '@/lib/supabase/auth'
 import { Loader2, ArrowLeft, BarChart3, MessageSquareText } from 'lucide-react'
 import Link from 'next/link'
 
+interface Survey {
+  id: string;
+  title: string;
+  target_type: string;
+  // Add other fields
+}
+
+interface Question {
+  id: string;
+  question_text: string;
+  question_type: string;
+  options: string[];
+  // Add other fields
+}
+
+interface Answer {
+  id: string;
+  question_id: string;
+  answer_text: string;
+  answer_value: string;
+}
+
 export default function SurveyResultsPage({ params }: { params: Promise<{ orgCode: string, eventId: string }> }) {
   const { orgCode, eventId } = use(params)
   const { user } = useAuth()
   
   const [loading, setLoading] = useState(true)
-  const [survey, setSurvey] = useState<any>(null)
-  const [questions, setQuestions] = useState<any[]>([])
+  const [survey, setSurvey] = useState<Survey | null>(null)
+  const [questions, setQuestions] = useState<Question[]>([])
   const [responsesCount, setResponsesCount] = useState(0)
-  const [answers, setAnswers] = useState<any[]>([])
+  const [answers, setAnswers] = useState<Answer[]>([])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -68,7 +90,7 @@ export default function SurveyResultsPage({ params }: { params: Promise<{ orgCod
   }, [eventId, user])
 
   // 質問ごとの集計ロジック
-  const renderAnalysis = (question: any) => {
+  const renderAnalysis = (question: Question) => {
     const questionAnswers = answers.filter(a => a.question_id === question.id)
     
     if (questionAnswers.length === 0) return <p className="text-gray-500 text-sm">まだ回答がありません</p>
