@@ -86,12 +86,12 @@ export default function EventReportPage({ params }: { params: Promise<{ orgCode:
           if (ratingQs && ratingQs.length > 0) {
             const { data: ratingAnswers } = await supabase
               .from('survey_answers')
-              .select('answer_value')
+              .select('answer_text')
               .in('question_id', ratingQs.map(q => q.id))
 
             if (ratingAnswers && ratingAnswers.length > 0) {
               const vals = ratingAnswers
-                .map(a => parseFloat(a.answer_value))
+                .map(a => parseFloat(a.answer_text))
                 .filter(v => !isNaN(v) && v >= 1 && v <= 5)
               if (vals.length > 0) {
                 averageRating = vals.reduce((a, b) => a + b, 0) / vals.length
